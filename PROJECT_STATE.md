@@ -27,6 +27,8 @@ Manager OS MVP is a behavioral correction system for a manager who wants to stop
 - evening reminder
 - weekly review
 - scheduled push delivery
+- day review persistence
+- strictness mode escalation
 
 ### Role / Pattern Logic
 
@@ -47,6 +49,16 @@ Manager OS MVP is a behavioral correction system for a manager who wants to stop
 - due-soon reminders
 - overdue reminders
 
+### Discipline Engine
+
+- day status classification
+- automatic strictness mode:
+  - `support`
+  - `direct`
+  - `hard`
+- daily review persistence in `day_reviews`
+- weekly review now includes commitment-discipline signals
+
 ### Deployment
 
 - deployed to Ubuntu VPS
@@ -57,8 +69,7 @@ Manager OS MVP is a behavioral correction system for a manager who wants to stop
 ## What Is Not Implemented Yet
 
 - dashboard for analytics
-- management score per day/week
-- stronger escalation modes: `support -> direct -> hard`
+- richer management score per day/week
 - owner tracking for delegated work
 - commitment scoring in weekly review
 - public secured web access via nginx/domain

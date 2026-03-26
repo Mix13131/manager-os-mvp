@@ -33,6 +33,10 @@ This repository is the project memory. If a future chat starts without previous 
 - deadline reminders and overdue reminders
 - push rituals by schedule
 - Telegram menu and inline menu actions
+- discipline engine v1:
+  - day history
+  - day status classification
+  - automatic strictness mode: `support`, `direct`, `hard`
 
 ## Быстрый старт
 
@@ -171,6 +175,7 @@ cd manager_os_mvp
 - `День с управлением`
 - `День под риском`
 - `День без управления`
+- `Strictness`: `Support`, `Direct`, `Hard`
 
 Команда:
 

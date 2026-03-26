@@ -10,10 +10,10 @@
 
 ### 2. Stronger Behavioral Pressure
 
-- score days as `with management / without management`
-- count skipped resets in a row
-- escalate tone automatically after repeated drift
-- include deadline discipline in weekly review
+- add visible streak counters
+- show why strictness mode changed
+- add stronger hard-mode interventions
+- include explicit rule violations in weekly review
 
 ### 3. Better Commitment Model
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from . import db
 from . import llm_service
-from .schemas import AnalysisResult, DailyResetResponse, WeeklyReviewResponse
+from .schemas import AnalysisResult, DailyResetResponse, DayStatusResponse, WeeklyReviewResponse
 
 
 OPERATIONAL_MARKERS = {
@@ -50,6 +50,7 @@ PLAN_MARKERS = {"сегодня", "план", "неделя", "хочу", "на�
 REFLECTION_MARKERS = {"понял", "заметил", "опять", "сорвался", "рефлексия", "вывод"}
 VAGUE_TASK_MARKERS = {"сделать", "поработать", "посмотреть", "разобраться", "подумать", "заняться", "проверить"}
 VAGUE_RESULT_MARKERS = {"нормально", "как-нибудь", "по возможности", "если успею", "готово", "ок"}
+STRICTNESS_LABELS = {"support": "Support", "direct": "Direct", "hard": "Hard"}
 
 
 def now_iso() -> str:
@@ -74,6 +75,15 @@ def _parse_deadline(deadline_text: str) -> datetime:
 
 def _deadline_to_display(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def apply_strictness(message: str, strictness_mode: str) -> str:
+    prefix = {
+        "support": "",
+        "direct": "Прямо: ",
+        "hard": "Жестко: ",
+    }.get(strictness_mode, "")
+    return prefix + message
 
 
 def evaluate_commitment_quality(text: str, deadline_text: str, definition_of_done: str) -> dict[str, Any]:
@@ -298,6 +308,7 @@ def mark_commitment_done(commitment_id: int) -> dict[str, Any]:
         (now_iso(), commitment_id),
     )
     existing["status"] = "done"
+    record_day_review()
     return existing
 
 
@@ -316,6 +327,7 @@ def move_commitment(commitment_id: int, new_due_date: str) -> dict[str, Any]:
     )
     updated = get_commitment(commitment_id)
     updated["quality_score"] = quality["quality_score"]
+    record_day_review()
     return updated
 
 
@@ -332,6 +344,7 @@ def mark_commitment_broken(commitment_id: int) -> dict[str, Any]:
         (now_iso(), commitment_id),
     )
     broken = get_commitment(commitment_id)
+    record_day_review()
     return broken
 
 
@@ -415,6 +428,7 @@ def run_daily_reset(impact_focus: str, operational_risk: str, managerial_action:
         "role_risk": role_risk,
     }
     db.insert_ritual_log("daily_reset", payload, now_iso())
+    record_day_review()
     return DailyResetResponse(
         score=score,
         role_risk=role_risk,
@@ -467,6 +481,15 @@ def run_weekly_review() -> dict[str, Any]:
     managerial_count = sum(1 for row in rows if row["role_verdict"] == "manager")
     delegation_score = sum(1 for row in rows if row["recommended_action"] == "delegate") / total
     rescue_events = sum(1 for row in rows if row["distortion"] in {"rescuer_mode", "hypercontrol"})
+    day_rows = db.fetch_all(
+        """
+        SELECT strictness_mode, day_status, broken_commitments, moved_commitments
+        FROM day_reviews
+        WHERE review_date >= ?
+        ORDER BY review_date DESC
+        """,
+        (since_dt.date().isoformat(),),
+    )
     top_pattern = get_patterns(limit=1)
     top_pattern_label = top_pattern[0]["label"] if top_pattern else "not_detected"
     management_ratio = managerial_count / total
@@ -495,10 +518,16 @@ def run_weekly_review() -> dict[str, Any]:
         else:
             next_week_rule = "Каждый день начинать с одного управленческого действия до операционки."
 
+        strictness_counts = Counter(row["strictness_mode"] for row in day_rows)
+        broken_total = sum(int(row["broken_commitments"]) for row in day_rows)
+        moved_total = sum(int(row["moved_commitments"]) for row in day_rows)
         summary = (
             f"Управленческих записей: {managerial_count} из {total}. "
             f"Повторяющийся паттерн: {top_pattern_label}. "
             f"Событий спасательства: {rescue_events}. "
+            f"Срывов обязательств: {broken_total}. "
+            f"Переносов: {moved_total}. "
+            f"Hard-дней: {strictness_counts.get('hard', 0)}. "
             f"Правило на неделю: {next_week_rule}"
         )
         review_model = WeeklyReviewResponse(
@@ -767,17 +796,56 @@ def build_morning_reminder() -> str:
 def build_evening_reminder() -> str:
     patterns = get_patterns(limit=1)
     top = patterns[0]["label"] if patterns else "not_detected"
+    strictness_mode = get_day_management_status()["strictness_mode"]
     if has_daily_reset_today():
-        return (
+        return apply_strictness(
+            (
             "Вечерний check.\n"
             f"Главный текущий паттерн: {top}.\n"
             "Зафиксируй: где ты удержал роль, а где снова полез руками."
+            ),
+            strictness_mode,
         )
-    return (
+    return apply_strictness(
+        (
         "Вечерний check.\n"
         "Сегодня день прошел без daily reset. Система помечает это как день без управления.\n"
         "Минимум на сейчас: зафиксируй один откат и одно управленческое решение на завтра."
+        ),
+        strictness_mode,
     )
+
+
+def calculate_strictness_mode(
+    *,
+    reset_done: bool,
+    rescue_events: int,
+    broken_commitments: int,
+    moved_commitments: int,
+) -> str:
+    recent_days = db.fetch_all(
+        """
+        SELECT review_date, day_status
+        FROM day_reviews
+        ORDER BY review_date DESC
+        LIMIT 7
+        """
+    )
+    missed_reset_streak = 0
+    for row in recent_days:
+        if row["day_status"] == "without_management":
+            missed_reset_streak += 1
+        else:
+            break
+
+    if not reset_done:
+        missed_reset_streak += 1
+
+    if broken_commitments >= 1 or rescue_events >= 3 or missed_reset_streak >= 2:
+        return "hard"
+    if moved_commitments >= 1 or rescue_events >= 1 or not reset_done:
+        return "direct"
+    return "support"
 
 
 def get_day_management_status() -> dict[str, Any]:
@@ -795,6 +863,22 @@ def get_day_management_status() -> dict[str, Any]:
     managers = sum(1 for row in entries if row["role_verdict"] == "manager")
     executors = sum(1 for row in entries if row["role_verdict"] == "executor")
     rescue_events = sum(1 for row in entries if row["distortion"] in {"rescuer_mode", "hypercontrol"})
+    commitment_rows = db.fetch_all(
+        """
+        SELECT status, broken_count, updated_at
+        FROM commitments
+        WHERE substr(updated_at, 1, 10) = ?
+        """,
+        (today,),
+    )
+    broken_commitments = sum(1 for row in commitment_rows if row["status"] == "broken")
+    moved_commitments = sum(1 for row in commitment_rows if int(row.get("broken_count") or 0) > 0)
+    strictness_mode = calculate_strictness_mode(
+        reset_done=reset_done,
+        rescue_events=rescue_events,
+        broken_commitments=broken_commitments,
+        moved_commitments=moved_commitments,
+    )
 
     if reset_done and managers >= executors:
         status = "with_management"
@@ -818,6 +902,9 @@ def get_day_management_status() -> dict[str, Any]:
         "manager_entries": managers,
         "executor_entries": executors,
         "rescue_events": rescue_events,
+        "broken_commitments": broken_commitments,
+        "moved_commitments": moved_commitments,
+        "strictness_mode": strictness_mode,
     }
 
 
@@ -830,5 +917,67 @@ def format_day_status_message() -> str:
         f"Manager entries: {payload['manager_entries']}\n"
         f"Executor entries: {payload['executor_entries']}\n"
         f"Rescue events: {payload['rescue_events']}\n"
+        f"Broken commitments: {payload['broken_commitments']}\n"
+        f"Moved commitments: {payload['moved_commitments']}\n"
+        f"Strictness: {STRICTNESS_LABELS.get(payload['strictness_mode'], payload['strictness_mode'])}\n"
         f"Комментарий: {payload['comment']}"
     )
+
+
+def record_day_review() -> DayStatusResponse:
+    payload = DayStatusResponse(**get_day_management_status())
+    created_at = now_iso()
+    summary = (
+        f"{payload.label}. Reset={payload.reset_done}. "
+        f"Manager={payload.manager_entries}. Executor={payload.executor_entries}. "
+        f"Rescue={payload.rescue_events}. Broken={payload.broken_commitments}. "
+        f"Moved={payload.moved_commitments}. Strictness={payload.strictness_mode}."
+    )
+    existing = db.fetch_one("SELECT id FROM day_reviews WHERE review_date = ?", (payload.date,))
+    if existing:
+        db.execute(
+            """
+            UPDATE day_reviews
+            SET day_status = ?, strictness_mode = ?, reset_done = ?, manager_entries = ?, executor_entries = ?,
+                rescue_events = ?, broken_commitments = ?, moved_commitments = ?, summary = ?, updated_at = ?
+            WHERE review_date = ?
+            """,
+            (
+                payload.status,
+                payload.strictness_mode,
+                1 if payload.reset_done else 0,
+                payload.manager_entries,
+                payload.executor_entries,
+                payload.rescue_events,
+                payload.broken_commitments,
+                payload.moved_commitments,
+                summary,
+                created_at,
+                payload.date,
+            ),
+        )
+    else:
+        db.insert_and_return_id(
+            """
+            INSERT INTO day_reviews (
+                review_date, day_status, strictness_mode, reset_done, manager_entries, executor_entries,
+                rescue_events, broken_commitments, moved_commitments, summary, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.date,
+                payload.status,
+                payload.strictness_mode,
+                1 if payload.reset_done else 0,
+                payload.manager_entries,
+                payload.executor_entries,
+                payload.rescue_events,
+                payload.broken_commitments,
+                payload.moved_commitments,
+                summary,
+                created_at,
+                created_at,
+            ),
+        )
+    return payload

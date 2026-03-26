@@ -82,6 +82,22 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS day_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_date TEXT NOT NULL UNIQUE,
+            day_status TEXT NOT NULL,
+            strictness_mode TEXT NOT NULL,
+            reset_done INTEGER NOT NULL DEFAULT 0,
+            manager_entries INTEGER NOT NULL DEFAULT 0,
+            executor_entries INTEGER NOT NULL DEFAULT 0,
+            rescue_events INTEGER NOT NULL DEFAULT 0,
+            broken_commitments INTEGER NOT NULL DEFAULT 0,
+            moved_commitments INTEGER NOT NULL DEFAULT 0,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     _ensure_column(cur, "commitments", "definition_of_done", "TEXT")

@@ -17,6 +17,7 @@ Distortion = Literal[
     "not_detected",
 ]
 RecommendedAction = Literal["do", "delegate", "delay", "delete", "process", "discuss"]
+StrictnessMode = Literal["support", "direct", "hard"]
 
 
 class CaptureRequest(BaseModel):
@@ -69,6 +70,20 @@ class LLMStatusResponse(BaseModel):
     provider: str
     model: str
     mode: str
+
+
+class DayStatusResponse(BaseModel):
+    date: str
+    status: str
+    label: str
+    comment: str
+    reset_done: bool
+    manager_entries: int
+    executor_entries: int
+    rescue_events: int
+    broken_commitments: int
+    moved_commitments: int
+    strictness_mode: StrictnessMode
 
 
 class CommitmentRequest(BaseModel):

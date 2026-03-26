@@ -21,6 +21,7 @@ from telegram.ext import (
 
 from .config import settings
 from .services import (
+    apply_strictness,
     build_evening_reminder,
     build_morning_reminder,
     build_repeat_intervention,
@@ -36,6 +37,7 @@ from .services import (
     format_single_commitment_message,
     format_weekly_review_message,
     get_commitment,
+    get_day_management_status,
     get_due_commitment_reminders,
     list_active_telegram_chats,
     mark_commitment_done,
@@ -177,10 +179,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    day_payload = get_day_management_status()
     await update.message.reply_text(
         f"LLM: {'on' if settings.llm_enabled else 'off'}\n"
         f"Model: {settings.openai_model}\n"
-        f"Mode: {settings.app_mode}",
+        f"Mode: {settings.app_mode}\n"
+        f"Strictness: {day_payload['strictness_mode']}",
         reply_markup=MENU_KEYBOARD,
     )
 
@@ -190,7 +194,11 @@ async def patterns(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(format_weekly_review_message(), reply_markup=MENU_KEYBOARD)
+    payload = get_day_management_status()
+    await update.message.reply_text(
+        apply_strictness(format_weekly_review_message(), payload["strictness_mode"]),
+        reply_markup=MENU_KEYBOARD,
+    )
 
 
 async def day_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,7 +207,11 @@ async def day_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _reset_state(context)
-    await update.message.reply_text(RESET_PROMPTS[RESET_KEYS[0]], reply_markup=MENU_KEYBOARD)
+    payload = get_day_management_status()
+    await update.message.reply_text(
+        apply_strictness(RESET_PROMPTS[RESET_KEYS[0]], payload["strictness_mode"]),
+        reply_markup=MENU_KEYBOARD,
+    )
 
 
 async def commit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -207,10 +219,14 @@ async def commit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _clear_commit_state(context)
     context.user_data.pop("move_commitment_id", None)
     _start_commit_state(context)
+    payload = get_day_management_status()
     await update.message.reply_text(
-        "Фиксируем обязательство.\n"
-        "Никаких размытых сроков и формулировок.\n"
-        f"{COMMIT_PROMPTS[COMMIT_KEYS[0]]}",
+        apply_strictness(
+            "Фиксируем обязательство.\n"
+            "Никаких размытых сроков и формулировок.\n"
+            f"{COMMIT_PROMPTS[COMMIT_KEYS[0]]}",
+            payload["strictness_mode"],
+        ),
         reply_markup=MENU_KEYBOARD,
     )
 
@@ -237,7 +253,11 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=MENU_KEYBOARD,
         )
         return
-    await update.message.reply_text(format_commitment_done_message(commitment), reply_markup=MENU_KEYBOARD)
+    payload = get_day_management_status()
+    await update.message.reply_text(
+        apply_strictness(format_commitment_done_message(commitment), payload["strictness_mode"]),
+        reply_markup=MENU_KEYBOARD,
+    )
 
 
 async def move(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -303,17 +323,25 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     if action == "menu:reset":
         _reset_state(context)
-        await query.message.reply_text(RESET_PROMPTS[RESET_KEYS[0]], reply_markup=MENU_KEYBOARD)
+        payload = get_day_management_status()
+        await query.message.reply_text(
+            apply_strictness(RESET_PROMPTS[RESET_KEYS[0]], payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
         return
     if action == "menu:commit":
         _clear_reset_state(context)
         _clear_commit_state(context)
         context.user_data.pop("move_commitment_id", None)
         _start_commit_state(context)
+        payload = get_day_management_status()
         await query.message.reply_text(
-            "Фиксируем обязательство.\n"
-            "Никаких размытых сроков и формулировок.\n"
-            f"{COMMIT_PROMPTS[COMMIT_KEYS[0]]}",
+            apply_strictness(
+                "Фиксируем обязательство.\n"
+                "Никаких размытых сроков и формулировок.\n"
+                f"{COMMIT_PROMPTS[COMMIT_KEYS[0]]}",
+                payload["strictness_mode"],
+            ),
             reply_markup=MENU_KEYBOARD,
         )
         return
@@ -326,7 +354,11 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         return
     if action == "menu:weekly":
-        await query.message.reply_text(format_weekly_review_message(), reply_markup=MENU_KEYBOARD)
+        payload = get_day_management_status()
+        await query.message.reply_text(
+            apply_strictness(format_weekly_review_message(), payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
         return
     if action == "menu:patterns":
         await query.message.reply_text(format_patterns_message(), reply_markup=MENU_KEYBOARD)
@@ -335,10 +367,12 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text(format_day_status_message(), reply_markup=MENU_KEYBOARD)
         return
     if action == "menu:status":
+        payload = get_day_management_status()
         await query.message.reply_text(
             f"LLM: {'on' if settings.llm_enabled else 'off'}\n"
             f"Model: {settings.openai_model}\n"
-            f"Mode: {settings.app_mode}",
+            f"Mode: {settings.app_mode}\n"
+            f"Strictness: {payload['strictness_mode']}",
             reply_markup=MENU_KEYBOARD,
         )
         return
@@ -367,7 +401,11 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
         except Exception:
             await query.message.reply_text("Не смог отметить обязательство как done.", reply_markup=MENU_KEYBOARD)
             return
-        await query.message.reply_text(format_commitment_done_message(commitment), reply_markup=MENU_KEYBOARD)
+        payload = get_day_management_status()
+        await query.message.reply_text(
+            apply_strictness(format_commitment_done_message(commitment), payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
         return
 
     if action == "move":
@@ -387,7 +425,11 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
 
 async def push_morning_reset(context: ContextTypes.DEFAULT_TYPE) -> None:
     for chat in list_active_telegram_chats():
-        await context.bot.send_message(chat_id=chat["chat_id"], text=build_morning_reminder())
+        payload = get_day_management_status()
+        await context.bot.send_message(
+            chat_id=chat["chat_id"],
+            text=apply_strictness(build_morning_reminder(), payload["strictness_mode"]),
+        )
 
 
 async def push_evening_review(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -396,7 +438,8 @@ async def push_evening_review(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def push_weekly_review(context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = format_weekly_review_message()
+    payload = get_day_management_status()
+    message = apply_strictness(format_weekly_review_message(), payload["strictness_mode"])
     for chat in list_active_telegram_chats():
         await context.bot.send_message(chat_id=chat["chat_id"], text=message)
 
@@ -405,9 +448,13 @@ async def push_commitment_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
     reminders = get_due_commitment_reminders()
     if not reminders:
         return
+    payload = get_day_management_status()
     for chat in list_active_telegram_chats():
         for reminder in reminders:
-            await context.bot.send_message(chat_id=chat["chat_id"], text=reminder)
+            await context.bot.send_message(
+                chat_id=chat["chat_id"],
+                text=apply_strictness(reminder, payload["strictness_mode"]),
+            )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -444,13 +491,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             operational_risk=payload["operational_risk"],
             managerial_action=payload["managerial_action"],
         )
+        day_payload = get_day_management_status()
         await message.reply_text(
-            "Daily reset\n"
-            f"Score: {result.score}\n"
-            f"Risk: {result.role_risk}\n"
-            f"Distortion: {result.distortion}\n"
-            f"Boundary: {result.hard_boundary}\n"
-            f"Must do: {result.must_do_today}"
+            apply_strictness(
+                "Daily reset\n"
+                f"Score: {result.score}\n"
+                f"Risk: {result.role_risk}\n"
+                f"Distortion: {result.distortion}\n"
+                f"Boundary: {result.hard_boundary}\n"
+                f"Must do: {result.must_do_today}",
+                day_payload["strictness_mode"],
+            )
         )
         return
 
@@ -481,7 +532,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
 
         _clear_commit_state(context)
-        await message.reply_text(format_commitment_created_message(commitment), reply_markup=MENU_KEYBOARD)
+        day_payload = get_day_management_status()
+        await message.reply_text(
+            apply_strictness(format_commitment_created_message(commitment), day_payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
         return
 
     move_commitment_id = context.user_data.get("move_commitment_id")
@@ -493,14 +548,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await message.reply_text(format_deadline_help(), reply_markup=MENU_KEYBOARD)
             return
         context.user_data.pop("move_commitment_id", None)
-        await message.reply_text(format_commitment_moved_message(commitment), reply_markup=MENU_KEYBOARD)
+        day_payload = get_day_management_status()
+        await message.reply_text(
+            apply_strictness(format_commitment_moved_message(commitment), day_payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
         return
 
     saved = save_capture(message.text, source="telegram")
-    await message.reply_text(format_analysis_message(saved), reply_markup=MENU_KEYBOARD)
+    day_payload = get_day_management_status()
+    await message.reply_text(
+        apply_strictness(format_analysis_message(saved), day_payload["strictness_mode"]),
+        reply_markup=MENU_KEYBOARD,
+    )
     intervention = build_repeat_intervention(saved["analysis"]["distortion"])
     if intervention:
-        await message.reply_text(intervention, reply_markup=MENU_KEYBOARD)
+        await message.reply_text(
+            apply_strictness(intervention, day_payload["strictness_mode"]),
+            reply_markup=MENU_KEYBOARD,
+        )
 
 
 def schedule_jobs(application: Application) -> None:
