@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manager OS MVP</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="panel hero">
+      <p class="eyebrow">Manager OS MVP</p>
+      <h1>Локальная система поведенческого сопровождения</h1>
+      <p class="lead">Сначала фиксирует, в какой роли ты действуешь. Только потом помогает.</p>
+      <p class="status">
+        LLM: <strong>{{ "on" if llm_status.enabled else "off" }}</strong>
+        / model: <strong>{{ llm_status.model }}</strong>
+        / mode: <strong>{{ llm_status.mode }}</strong>
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Capture</h2>
+      <textarea id="captureText" placeholder="Например: Нужно срочно самому проверить отчет команды, чтобы не было ошибки."></textarea>
+      <button id="captureButton">Разобрать запись</button>
+      <pre id="captureResult">Ожидается новая запись.</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Daily Reset</h2>
+      <input id="impactFocus" placeholder="Что сегодня реально влияет на результат?">
+      <input id="operationalRisk" placeholder="Где ты рискуешь снова влезть в операционку?">
+      <input id="managerialAction" placeholder="Какое одно управленческое действие обязательно сегодня?">
+      <button id="resetButton">Пройти reset</button>
+      <pre id="resetResult">Reset еще не пройден.</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Weekly Review</h2>
+      <button id="weeklyButton">Собрать недельную ревизию</button>
+      <pre id="weeklyResult">Ревизия еще не запускалась.</pre>
+    </section>
+
+    <section class="panel two-col">
+      <div>
+        <h2>Последние записи</h2>
+        <ul class="list">
+          {% for entry in entries %}
+          <li>
+            <strong>{{ entry.role_verdict }}</strong> / {{ entry.contour }} / {{ entry.distortion }}<br>
+            {{ entry.text }}
+          </li>
+          {% else %}
+          <li>Пока нет записей.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <h2>Паттерны</h2>
+        <ul class="list">
+          {% for pattern in patterns %}
+          <li>
+            <strong>{{ pattern.label }}</strong> x{{ pattern.frequency }}<br>
+            {{ pattern.example }}
+          </li>
+          {% else %}
+          <li>Паттерны еще не накопились.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
