@@ -605,6 +605,16 @@ def format_commitments_message(status: str = "open") -> str:
     return "\n\n".join(lines)
 
 
+def format_single_commitment_message(item: dict[str, Any]) -> str:
+    due_dt = datetime.fromisoformat(item["due_date"])
+    return (
+        f"#{item['id']} [{item.get('deadline_state', 'planned')}] до {_deadline_to_display(due_dt)}\n"
+        f"{item['text']}\n"
+        f"DoD: {item.get('definition_of_done') or '-'}\n"
+        f"Качество: {item.get('quality_comment') or '-'}"
+    )
+
+
 def format_commitment_created_message(commitment: dict[str, Any]) -> str:
     due_dt = datetime.fromisoformat(commitment["due_date"])
     return (
@@ -767,4 +777,58 @@ def build_evening_reminder() -> str:
         "Вечерний check.\n"
         "Сегодня день прошел без daily reset. Система помечает это как день без управления.\n"
         "Минимум на сейчас: зафиксируй один откат и одно управленческое решение на завтра."
+    )
+
+
+def get_day_management_status() -> dict[str, Any]:
+    today = datetime.now(timezone.utc).date().isoformat()
+    reset_done = has_daily_reset_today()
+    entries = db.fetch_all(
+        """
+        SELECT a.role_verdict, a.distortion
+        FROM analyses a
+        JOIN entries e ON e.id = a.entry_id
+        WHERE substr(e.created_at, 1, 10) = ?
+        """,
+        (today,),
+    )
+    managers = sum(1 for row in entries if row["role_verdict"] == "manager")
+    executors = sum(1 for row in entries if row["role_verdict"] == "executor")
+    rescue_events = sum(1 for row in entries if row["distortion"] in {"rescuer_mode", "hypercontrol"})
+
+    if reset_done and managers >= executors:
+        status = "with_management"
+        label = "День с управлением"
+        comment = "Есть daily reset и пока управленческие действия не проигрывают операционке."
+    elif reset_done:
+        status = "at_risk"
+        label = "День под риском"
+        comment = "Reset есть, но операционка пока тянет тебя сильнее управленческого слоя."
+    else:
+        status = "without_management"
+        label = "День без управления"
+        comment = "Daily reset не пройден. Система считает, что день начался без управленческого каркаса."
+
+    return {
+        "date": today,
+        "status": status,
+        "label": label,
+        "comment": comment,
+        "reset_done": reset_done,
+        "manager_entries": managers,
+        "executor_entries": executors,
+        "rescue_events": rescue_events,
+    }
+
+
+def format_day_status_message() -> str:
+    payload = get_day_management_status()
+    return (
+        f"{payload['label']}\n"
+        f"Дата: {payload['date']}\n"
+        f"Reset: {'done' if payload['reset_done'] else 'missed'}\n"
+        f"Manager entries: {payload['manager_entries']}\n"
+        f"Executor entries: {payload['executor_entries']}\n"
+        f"Rescue events: {payload['rescue_events']}\n"
+        f"Комментарий: {payload['comment']}"
     )

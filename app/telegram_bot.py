@@ -25,6 +25,7 @@ from .services import (
     build_morning_reminder,
     build_repeat_intervention,
     create_commitment,
+    format_day_status_message,
     format_commitment_created_message,
     format_commitment_done_message,
     format_commitment_moved_message,
@@ -32,7 +33,9 @@ from .services import (
     format_deadline_help,
     format_analysis_message,
     format_patterns_message,
+    format_single_commitment_message,
     format_weekly_review_message,
+    get_commitment,
     get_due_commitment_reminders,
     list_active_telegram_chats,
     mark_commitment_done,
@@ -89,8 +92,20 @@ def _build_main_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Паттерны", callback_data="menu:patterns"),
             ],
             [
+                InlineKeyboardButton("Статус дня", callback_data="menu:day_status"),
                 InlineKeyboardButton("Статус", callback_data="menu:status"),
             ],
+        ]
+    )
+
+
+def _build_commitment_actions(commitment_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Done", callback_data=f"commitment:done:{commitment_id}"),
+                InlineKeyboardButton("Move", callback_data=f"commitment:move:{commitment_id}"),
+            ]
         ]
     )
 
@@ -151,6 +166,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/move ID - перенести обязательство на новый срок\n"
         "/weekly - недельная ревизия\n"
         "/patterns - повторяющиеся паттерны\n"
+        "/day - статус дня\n"
         "/status - статус LLM и режима\n\n"
         "/pause - отключить push-напоминания\n"
         "/resume - снова включить push-напоминания\n\n"
@@ -177,6 +193,10 @@ async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(format_weekly_review_message(), reply_markup=MENU_KEYBOARD)
 
 
+async def day_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(format_day_status_message(), reply_markup=MENU_KEYBOARD)
+
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _reset_state(context)
     await update.message.reply_text(RESET_PROMPTS[RESET_KEYS[0]], reply_markup=MENU_KEYBOARD)
@@ -196,7 +216,13 @@ async def commit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def commitments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(format_commitments_message(), reply_markup=MENU_KEYBOARD)
+    items_text = format_commitments_message()
+    await update.message.reply_text(items_text, reply_markup=MENU_KEYBOARD)
+    for item in list_active_commitments_for_ui():
+        await update.message.reply_text(
+            format_single_commitment_message(item),
+            reply_markup=_build_commitment_actions(item["id"]),
+        )
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -256,6 +282,12 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _show_main_menu(update)
 
 
+def list_active_commitments_for_ui() -> list[dict]:
+    from .services import list_commitments
+
+    return list_commitments(status="open", limit=10)
+
+
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None:
@@ -287,12 +319,20 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     if action == "menu:commitments":
         await query.message.reply_text(format_commitments_message(), reply_markup=MENU_KEYBOARD)
+        for item in list_active_commitments_for_ui():
+            await query.message.reply_text(
+                format_single_commitment_message(item),
+                reply_markup=_build_commitment_actions(item["id"]),
+            )
         return
     if action == "menu:weekly":
         await query.message.reply_text(format_weekly_review_message(), reply_markup=MENU_KEYBOARD)
         return
     if action == "menu:patterns":
         await query.message.reply_text(format_patterns_message(), reply_markup=MENU_KEYBOARD)
+        return
+    if action == "menu:day_status":
+        await query.message.reply_text(format_day_status_message(), reply_markup=MENU_KEYBOARD)
         return
     if action == "menu:status":
         await query.message.reply_text(
@@ -304,6 +344,45 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     await _show_main_menu(update)
+
+
+async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None:
+        return
+    await query.answer()
+    payload = (query.data or "").split(":")
+    if len(payload) != 3:
+        return
+
+    _, action, raw_id = payload
+    try:
+        commitment_id = int(raw_id)
+    except ValueError:
+        return
+
+    if action == "done":
+        try:
+            commitment = mark_commitment_done(commitment_id)
+        except Exception:
+            await query.message.reply_text("Не смог отметить обязательство как done.", reply_markup=MENU_KEYBOARD)
+            return
+        await query.message.reply_text(format_commitment_done_message(commitment), reply_markup=MENU_KEYBOARD)
+        return
+
+    if action == "move":
+        item = get_commitment(commitment_id)
+        if not item:
+            await query.message.reply_text("Не смог найти обязательство.", reply_markup=MENU_KEYBOARD)
+            return
+        _clear_reset_state(context)
+        _clear_commit_state(context)
+        _start_move_state(context, commitment_id)
+        await query.message.reply_text(
+            f"Новый срок для обязательства #{commitment_id}.\n{format_deadline_help()}",
+            reply_markup=MENU_KEYBOARD,
+        )
+        return
 
 
 async def push_morning_reset(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -465,6 +544,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("patterns", patterns))
     application.add_handler(CommandHandler("weekly", weekly))
+    application.add_handler(CommandHandler("day", day_status))
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("commit", commit))
     application.add_handler(CommandHandler("commitments", commitments))
@@ -473,6 +553,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("pause", pause))
     application.add_handler(CommandHandler("resume", resume))
     application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern=r"^menu:"))
+    application.add_handler(CallbackQueryHandler(handle_commitment_callback, pattern=r"^commitment:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return application
 
@@ -484,6 +565,7 @@ async def post_init(application: Application) -> None:
             BotCommand("reset", "Daily reset"),
             BotCommand("commit", "Новое обязательство"),
             BotCommand("commitments", "Открытые обязательства"),
+            BotCommand("day", "Статус дня"),
             BotCommand("weekly", "Недельная ревизия"),
             BotCommand("patterns", "Повторяющиеся паттерны"),
             BotCommand("status", "Статус бота"),
