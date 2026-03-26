@@ -70,6 +70,24 @@ COMMIT_PROMPTS = {
     ),
     "definition_of_done": "3/3 Что будет считаться готовым результатом? Один конкретный критерий.",
 }
+BOT_QUICK_GUIDE = (
+    "Как пользоваться ботом:\n\n"
+    "1. Обычное сообщение = одна задача, один риск или один срыв.\n"
+    "Пиши сразу по ходу дня, не копи до вечера.\n\n"
+    "2. /commit = обязательство со сроком.\n"
+    "Используй, когда реально берешь на себя результат к конкретному времени.\n\n"
+    "3. /commitments = посмотреть открытые обязательства.\n"
+    "Кнопка Done закрывает задачу, Move переносит срок.\n\n"
+    "4. /reset = утренний возврат в управленческую роль.\n"
+    "Бот сам пишет утром и вечером по расписанию.\n\n"
+    "5. Что писать боту:\n"
+    "- новая входящая задача\n"
+    "- желание полезть руками\n"
+    "- перегруз, хаос, тревога\n"
+    "- факт срыва: уже сделал сам вместо делегирования\n\n"
+    "6. Лучший режим работы:\n"
+    "сначала написал одну ситуацию -> получил разбор -> потом отправил следующую."
+)
 MENU_TRIGGER = "Меню"
 MENU_KEYBOARD = ReplyKeyboardMarkup(
     [[KeyboardButton(MENU_TRIGGER)]],
@@ -96,6 +114,9 @@ def _build_main_menu() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton("Статус дня", callback_data="menu:day_status"),
                 InlineKeyboardButton("Статус", callback_data="menu:status"),
+            ],
+            [
+                InlineKeyboardButton("Инструкция", callback_data="menu:guide"),
             ],
         ]
     )
@@ -161,6 +182,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Manager OS bot активен.\n"
         "Команды:\n"
+        "/guide - мини инструкция по использованию\n"
         "/reset - пройти daily reset\n"
         "/commit - создать обязательство с дедлайном\n"
         "/commitments - список открытых обязательств\n"
@@ -176,6 +198,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=MENU_KEYBOARD,
     )
     await _send_menu_message(update.message)
+
+
+async def guide(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    payload = get_day_management_status()
+    await update.message.reply_text(
+        apply_strictness(BOT_QUICK_GUIDE, payload["strictness_mode"]),
+        reply_markup=MENU_KEYBOARD,
+    )
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -373,6 +403,13 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Model: {settings.openai_model}\n"
             f"Mode: {settings.app_mode}\n"
             f"Strictness: {payload['strictness_mode']}",
+            reply_markup=MENU_KEYBOARD,
+        )
+        return
+    if action == "menu:guide":
+        payload = get_day_management_status()
+        await query.message.reply_text(
+            apply_strictness(BOT_QUICK_GUIDE, payload["strictness_mode"]),
             reply_markup=MENU_KEYBOARD,
         )
         return
@@ -606,6 +643,7 @@ def build_application() -> Application:
     schedule_jobs(application)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", start))
+    application.add_handler(CommandHandler("guide", guide))
     application.add_handler(CommandHandler("menu", menu))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("patterns", patterns))
@@ -628,6 +666,7 @@ async def post_init(application: Application) -> None:
     await application.bot.set_my_commands(
         [
             BotCommand("menu", "Показать меню"),
+            BotCommand("guide", "Как пользоваться ботом"),
             BotCommand("reset", "Daily reset"),
             BotCommand("commit", "Новое обязательство"),
             BotCommand("commitments", "Открытые обязательства"),
