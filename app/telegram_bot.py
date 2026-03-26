@@ -74,11 +74,11 @@ BOT_QUICK_GUIDE = (
     "Как пользоваться ботом:\n\n"
     "1. Обычное сообщение = одна задача, один риск или один срыв.\n"
     "Пиши сразу по ходу дня, не копи до вечера.\n\n"
-    "2. /commit = обязательство со сроком.\n"
+    "2. Кнопка «Создать обязательство» или команда /commit = обязательство со сроком.\n"
     "Используй, когда реально берешь на себя результат к конкретному времени.\n\n"
-    "3. /commitments = посмотреть открытые обязательства.\n"
+    "3. Кнопка «Список обязательств» или команда /commitments = посмотреть открытые обязательства.\n"
     "Кнопка Done закрывает задачу, Move переносит срок.\n\n"
-    "4. /reset = утренний возврат в управленческую роль.\n"
+    "4. Кнопка «Утренний reset» или команда /reset = утренний возврат в управленческую роль.\n"
     "Бот сам пишет утром и вечером по расписанию.\n\n"
     "5. Что писать боту:\n"
     "- новая входящая задача\n"
@@ -101,14 +101,14 @@ def _build_main_menu() -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton("Новая запись", callback_data="menu:new_entry"),
-                InlineKeyboardButton("Daily Reset", callback_data="menu:reset"),
+                InlineKeyboardButton("Утренний reset", callback_data="menu:reset"),
             ],
             [
-                InlineKeyboardButton("Новое обязательство", callback_data="menu:commit"),
-                InlineKeyboardButton("Обязательства", callback_data="menu:commitments"),
+                InlineKeyboardButton("Создать обязательство", callback_data="menu:commit"),
+                InlineKeyboardButton("Список обязательств", callback_data="menu:commitments"),
             ],
             [
-                InlineKeyboardButton("Weekly Review", callback_data="menu:weekly"),
+                InlineKeyboardButton("Недельная ревизия", callback_data="menu:weekly"),
                 InlineKeyboardButton("Паттерны", callback_data="menu:patterns"),
             ],
             [
